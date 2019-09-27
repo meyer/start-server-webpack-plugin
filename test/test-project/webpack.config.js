@@ -1,14 +1,16 @@
-const sysPath = require('path');
-const root = process.cwd();
-const StartServerPlugin = require(root);
+// @ts-check
 
+const path = require('path');
+const { StartServerPlugin } = require('../..');
+
+/** @type {import('webpack').Configuration} */
 module.exports = {
   mode: 'development',
-  entry: sysPath.join(root, 'test', 'test-project'),
+  context: __dirname,
   target: 'node',
-  plugins: [new StartServerPlugin({once: true})],
+  plugins: [new StartServerPlugin({ once: true })],
   output: {
-    path: sysPath.join(root, 'node_modules', '.build'),
+    path: path.join(__dirname, 'build'),
     filename: 'server.js',
   },
 };

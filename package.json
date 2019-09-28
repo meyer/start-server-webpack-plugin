@@ -1,6 +1,6 @@
 {
   "name": "@meyer/start-server-webpack-plugin",
-  "version": "3.0.0-rc.5",
+  "version": "3.0.0-rc.6",
   "main": "dist/index.js",
   "module": "dist/start-server-webpack-plugin.esm.js",
   "types": "dist/index.d.ts",

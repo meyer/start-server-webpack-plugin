@@ -15,6 +15,8 @@ export interface StartServerPluginOptions {
   restartable: boolean;
   /** Arguments passed to node */
   nodeArgs?: string[];
+  /** Environment passed to the child process */
+  env: NodeJS.ProcessEnv;
 }
 
 export class StartServerPlugin implements webpack.Plugin {
@@ -28,6 +30,7 @@ export class StartServerPlugin implements webpack.Plugin {
       once: false,
       args: [],
       restartable: process.env.NODE_ENV === 'development',
+      env: process.env,
       ...options,
       signal: options.signal === true ? 'SIGUSR2' : !!options.signal,
     });
@@ -135,13 +138,19 @@ export class StartServerPlugin implements webpack.Plugin {
     const {
       scriptFile,
       execArgv,
-      options: { args },
+      options: { args, env },
     } = this;
 
-    const cmdline = [...execArgv!, scriptFile, '--', ...args].join(' ');
+    const command = [...execArgv!, scriptFile];
+    const cmdline =
+      command + (args.length === 0 ? '' : [' --', ...args].join(' '));
     console.warn(`sswp> running \`node ${cmdline}\``);
 
-    const worker = childProcess.fork(scriptFile!, args, { execArgv });
+    const worker = childProcess.fork(scriptFile!, args, {
+      execArgv,
+      env,
+      cwd: process.cwd(),
+    });
     worker.once('exit', this.handleChildExit);
     worker.once('error', this.handleChildError);
     worker.on('message', this.handleChildMessage);

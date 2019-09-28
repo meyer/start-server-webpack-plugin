@@ -1,6 +1,6 @@
 {
   "name": "@meyer/start-server-webpack-plugin",
-  "version": "3.0.0-rc.6",
+  "version": "3.0.0-rc.8",
   "main": "dist/index.js",
   "module": "dist/start-server-webpack-plugin.esm.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
     "build": "tsdx build",
     "test": "tsdx test",
     "lint": "tsdx lint",
-    "prepare": "tsdx build",
+    "prepare": "rimraf dist/* && tsdx build",
     "test-project": "webpack --config test/test-project/webpack.config.js"
   },
   "peerDependencies": {},
@@ -29,6 +29,7 @@
   "devDependencies": {
     "@types/jest": "^24.0.18",
     "husky": "^3.0.5",
+    "rimraf": "^3.0.0",
     "tsdx": "^0.9.2",
     "tslib": "^1.10.0",
     "typescript": "^3.6.3",
@@ -36,6 +37,6 @@
   },
   "dependencies": {
     "@types/webpack": "*",
-    "@types/webpack-env": "*"
+    "chalk": "^2.4.2"
   }
 }

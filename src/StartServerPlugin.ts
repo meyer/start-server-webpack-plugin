@@ -1,23 +1,43 @@
 import childProcess from 'child_process';
 import webpack from 'webpack';
 import { getScriptFromCompilation } from './utils';
+import chalk from 'chalk';
+import util from 'util';
 
 export interface StartServerPluginOptions {
   /** What to run */
   entryName: string;
   /** Arguments for worker */
   args: string[];
-  /** Run once and exit when worker exits */
-  once: boolean;
   /** Send a signal instead of a message */
-  signal: boolean | string;
-  /** Only listen on keyboard in development, so the server doesn't hang forever */
-  restartable: boolean;
+  signal: string | number | undefined;
   /** Arguments passed to node */
   nodeArgs: string[];
   /** Environment passed to the child process */
   env: NodeJS.ProcessEnv;
 }
+
+const pluginName = 'StartServerPlugin';
+
+const colors = {
+  error: 'red',
+  info: 'green',
+  warn: 'yellow',
+} as const;
+
+type Thing = typeof colors;
+
+const log = <T extends keyof Thing>(
+  level: T,
+  message: string,
+  ...args: any[]
+) => {
+  console[level](
+    chalk[colors[level]].bold(
+      `\n${pluginName} > ` + util.format(message, ...args)
+    )
+  );
+};
 
 export class StartServerPlugin implements webpack.Plugin {
   constructor(options: string | Partial<StartServerPluginOptions> = {}) {
@@ -27,13 +47,11 @@ export class StartServerPlugin implements webpack.Plugin {
 
     this.options = Object.freeze({
       entryName: 'main',
-      once: false,
       args: [],
-      restartable: process.env.NODE_ENV === 'development',
       env: process.env,
       nodeArgs: [],
+      signal: 'SIGUSR2',
       ...options,
-      signal: options.signal === true ? 'SIGUSR2' : !!options.signal,
     });
 
     if (!Array.isArray(this.options.args)) {
@@ -41,42 +59,21 @@ export class StartServerPlugin implements webpack.Plugin {
     }
   }
 
-  private name = 'StartServerPlugin';
   public readonly options: Readonly<StartServerPluginOptions>;
   private worker: childProcess.ChildProcess | null = null;
-
-  private handleChildExit = (code: number | null, signal: string | null) => {
-    if (code) {
-      console.error('sswp> script exited with code', code);
-    }
-
-    if (signal) {
-      console.error('sswp> script exited after signal', signal);
-    }
-  };
-
-  private handleChildError = (err: Error): void => {
-    console.error('sswp> ERROR:', err);
-  };
 
   private killServer = () => {
     if (!this.worker) {
       return;
     }
-    console.log('sswp> Killing worker...');
-    process.kill(this.worker.pid);
+    log('info', 'Killing worker...');
+    process.kill(this.worker.pid, this.options.signal);
     this.worker = null;
-  };
-
-  private onInvalidHook = () => {
-    this.killServer();
   };
 
   private onAfterEmitHook = async (
     compilation: webpack.compilation.Compilation
   ): Promise<void> => {
-    console.log('sswp> afterEmit!');
-
     // ensure the existing process has been killed
     this.killServer();
 
@@ -87,33 +84,52 @@ export class StartServerPlugin implements webpack.Plugin {
     );
 
     if (!scriptFile) {
-      console.error('sswp> ERROR: No script file');
+      log('error', 'ERROR: No script file');
       return;
     }
 
     const execArgv = [...this.options.nodeArgs, ...process.execArgv];
     const { args, env } = this.options;
 
-    const command = [...execArgv, scriptFile!];
+    const command = [...execArgv, scriptFile];
     const cmdline =
       command + (args.length === 0 ? '' : [' --', ...args].join(' '));
-    console.warn(`sswp> running \`node ${cmdline}\``);
+    log('info', `running \`node ${cmdline}\``);
 
     // create a new worker
-    const worker = childProcess.fork(scriptFile!, args, {
+    const worker = childProcess.fork(scriptFile, args, {
       execArgv,
       env,
       cwd: process.cwd(),
     });
 
-    worker.once('exit', this.handleChildExit);
-    worker.once('error', this.handleChildError);
+    worker.once('exit', (code, signal) => {
+      if (code) log('warn', 'script exited with code', code);
+      if (signal) log('warn', 'script exited after signal', signal);
+    });
+
+    worker.once('error', err => {
+      log('error', 'ERROR:', err);
+    });
 
     this.worker = worker;
   };
 
   apply(compiler: webpack.Compiler) {
-    compiler.hooks.invalid.tap(this.name, this.onInvalidHook);
-    compiler.hooks.afterEmit.tapPromise(this.name, this.onAfterEmitHook);
+    let hooksApplied = false;
+
+    // only enable plugin for watch mode
+    compiler.hooks.watchRun.tap(pluginName, () => {
+      if (hooksApplied) {
+        return;
+      }
+
+      log('info', 'plugin registered');
+
+      // Kill the server when compilation is invalidated
+      compiler.hooks.invalid.tap(pluginName, () => this.killServer());
+      compiler.hooks.afterEmit.tapPromise(pluginName, this.onAfterEmitHook);
+      hooksApplied = true;
+    });
   }
 }

@@ -13,7 +13,7 @@ export interface StartServerPluginOptions {
   signal: string | number | undefined;
   /** Arguments passed to node */
   nodeArgs: string[];
-  /** Environment passed to the child process */
+  /** Environment passed to the child process. Defaults to `process.env`. */
   env: NodeJS.ProcessEnv;
 }
 
@@ -25,9 +25,7 @@ const colors = {
   warn: 'yellow',
 } as const;
 
-type Thing = typeof colors;
-
-const log = <T extends keyof Thing>(
+const log = <T extends keyof typeof colors>(
   level: T,
   message: string,
   ...args: any[]
@@ -63,11 +61,23 @@ export class StartServerPlugin implements webpack.Plugin {
   private worker: childProcess.ChildProcess | null = null;
 
   private killServer = () => {
-    if (!this.worker) {
+    if (!this.worker || this.worker.killed) {
       return;
     }
+
     log('info', 'Killing worker...');
-    process.kill(this.worker.pid, this.options.signal);
+
+    try {
+      // ChildProcess.kill types are inaccurate
+      this.worker.kill(this.options.signal as any);
+    } catch (err) {
+      if (err.code === 'ESRCH') {
+        log('warn', 'Process has already been killed');
+      } else {
+        log('error', 'Error killing process:', err);
+      }
+    }
+
     this.worker = null;
   };
 
@@ -84,7 +94,7 @@ export class StartServerPlugin implements webpack.Plugin {
     );
 
     if (!scriptFile) {
-      log('error', 'ERROR: No script file');
+      log('error', 'No script file');
       return;
     }
 
@@ -94,7 +104,7 @@ export class StartServerPlugin implements webpack.Plugin {
     const command = [...execArgv, scriptFile];
     const cmdline =
       command + (args.length === 0 ? '' : [' --', ...args].join(' '));
-    log('info', `running \`node ${cmdline}\``);
+    log('info', 'running `node %s`', cmdline);
 
     // create a new worker
     const worker = childProcess.fork(scriptFile, args, {
@@ -106,10 +116,11 @@ export class StartServerPlugin implements webpack.Plugin {
     worker.once('exit', (code, signal) => {
       if (code) log('warn', 'script exited with code', code);
       if (signal) log('warn', 'script exited after signal', signal);
+      this.worker = null;
     });
 
     worker.once('error', err => {
-      log('error', 'ERROR:', err);
+      log('error', 'Worker error:', err);
     });
 
     this.worker = worker;
@@ -128,7 +139,25 @@ export class StartServerPlugin implements webpack.Plugin {
 
       // Kill the server when compilation is invalidated
       compiler.hooks.invalid.tap(pluginName, () => this.killServer());
+
       compiler.hooks.afterEmit.tapPromise(pluginName, this.onAfterEmitHook);
+
+      // copied from NoEmitOnErrorsPlugin
+      compiler.hooks.shouldEmit.tap(pluginName, compilation => {
+        const shouldEmit = !compilation.getStats().hasErrors();
+        if (!shouldEmit) {
+          log('error', 'compilation error');
+        }
+        return shouldEmit;
+      });
+
+      compiler.hooks.compilation.tap(pluginName, compilation => {
+        compilation.hooks.shouldRecord.tap(
+          pluginName,
+          () => !compilation.getStats().hasErrors()
+        );
+      });
+
       hooksApplied = true;
     });
   }

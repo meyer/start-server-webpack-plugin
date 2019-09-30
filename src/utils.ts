@@ -11,7 +11,7 @@ export const getScriptFromCompilation = (
   entryName: string,
   compilation: import('webpack').compilation.Compilation
 ): string | null => {
-  const map: Map<any, any> = compilation.entrypoints;
+  const map = compilation.entrypoints;
   const entry = map.get(entryName);
   if (!entry) {
     throw new FormattedError(
